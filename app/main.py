@@ -26,6 +26,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from app.ai.qdrant_store import close_qdrant_client, ensure_collection
 from app.core.config import settings
 from app.core.exceptions import (
     AppError,
@@ -56,10 +57,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         version=app.version,
     )
 
+    # Qdrant: ensure the log_entries collection exists before serving traffic.
+    # Failures are logged but do not prevent startup (embedding is async/eventual).
+    try:
+        await ensure_collection()
+    except Exception as exc:
+        logger.warning("qdrant_startup_failed", error=str(exc))
+
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────────
     await engine.dispose()
+    await close_qdrant_client()
     logger.info("shutdown")
 
 
