@@ -1,0 +1,66 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(**)", "Edit(**)", "Write(**)",
+      "Bash(make *)", "Bash(docker-compose *)", "Bash(docker compose *)",
+      "Bash(alembic *)", "Bash(pytest *)", "Bash(ruff *)", "Bash(mypy *)",
+      "Bash(pip install *)", "Bash(pip freeze *)", "Bash(python *)",
+      "Bash(cat *)", "Bash(ls *)", "Bash(find *)", "Bash(grep *)",
+      "Bash(head *)", "Bash(tail *)", "Bash(wc *)", "Bash(mkdir *)",
+      "Bash(cp *)", "Bash(mv *)", "Bash(touch *)", "Bash(echo *)",
+      "Bash(git add *)", "Bash(git commit *)", "Bash(git status*)",
+      "Bash(git diff*)", "Bash(git log*)", "Bash(git branch*)",
+      "Bash(git checkout*)", "Bash(git push*)", "Bash(git pull*)",
+      "Bash(git stash*)", "Bash(git merge*)", "Bash(celery *)"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)", "Bash(sudo *)", "Bash(chmod 777 *)",
+      "Bash(git push --force*)", "Bash(git push -f *)",
+      "Bash(*DROP DATABASE*)", "Bash(*DROP TABLE*)", "Bash(*TRUNCATE*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "filepath=$(echo $CLAUDE_TOOL_INPUT | python3 -c \"import sys,json; print(json.load(sys.stdin).get('path',''))\" 2>/dev/null); if echo \"$filepath\" | grep -qE '\\.py$'; then ruff check --fix \"$filepath\" 2>/dev/null; ruff format \"$filepath\" 2>/dev/null; fi",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=$(echo $CLAUDE_TOOL_INPUT | python3 -c \"import sys,json; print(json.load(sys.stdin).get('command',''))\" 2>/dev/null); if echo \"$cmd\" | grep -qiE '(rm -rf /|DROP DATABASE|DROP TABLE|TRUNCATE|ENCRYPTION_KEY|JWT_SECRET|API_KEY.*=)'; then echo 'BLOCKED: Dangerous command detected' >&2; exit 2; fi",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '\n--- Session ended. Remember: run make lint && make test before committing ---'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    }
+  }
+}

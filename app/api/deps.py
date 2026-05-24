@@ -3,20 +3,22 @@
 get_db           — yields an async DB session (per-request)
 get_current_user — validates JWT Bearer token, returns authenticated User
 get_admin_user   — get_current_user + asserts is_admin=True
-
-JWT + User model implementations are completed in Step 5 (Auth System).
 """
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 
+import jwt
 import structlog
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import decode_token
 from app.db.session import AsyncSessionLocal
 
 if TYPE_CHECKING:
@@ -44,7 +46,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
-# ── Auth dependencies (fully implemented in Step 5) ───────────────────────
+# ── Auth dependencies ─────────────────────────────────────────────────────
 
 
 async def get_current_user(
@@ -53,28 +55,47 @@ async def get_current_user(
 ) -> User:
     """Validate JWT access token and return the authenticated user.
 
-    Raises 401 if token is missing, invalid, or expired.
-    Raises 401 if user no longer exists or is_active=False.
-
-    Full implementation added in Step 5.
+    Raises 401 if:
+    - Authorization header is missing or not Bearer
+    - Token is expired, malformed, or wrong type
+    - User no longer exists or is_active=False
     """
-    # TODO: Step 5 — decode JWT, load User from DB, validate is_active
-    raise HTTPException(
+    from app.db.models.user import User
+
+    unauthorized = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Authentication not yet implemented (Step 5)",
+        detail="Invalid or expired token",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    if not credentials:
+        raise unauthorized
+
+    try:
+        payload = decode_token(credentials.credentials, expected_type="access")
+        user_id = uuid.UUID(str(payload["sub"]))
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValueError, KeyError):
+        raise unauthorized from None
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user: User | None = result.scalar_one_or_none()
+
+    if user is None or not user.is_active:
+        raise unauthorized
+
+    return user
 
 
 async def get_admin_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """Return the current user only if they are an admin.
+    """Return the current user only if they have is_admin=True.
 
-    Raises 403 if the authenticated user does not have is_admin=True.
+    Raises 403 if the authenticated user is not an admin.
     """
-    # TODO: Step 5 — check current_user.is_admin
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Admin access required",
-    )
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return current_user

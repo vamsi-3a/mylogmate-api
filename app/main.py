@@ -221,8 +221,9 @@ def _register_api_routers(app: FastAPI) -> None:
     Convention: all routers mount under /api/v1/<resource>
     """
     # Step 5: auth
-    # from app.api.v1.auth import router as auth_router
-    # app.include_router(auth_router, prefix="/api/v1")
+    from app.api.v1.auth import router as auth_router
+
+    app.include_router(auth_router, prefix="/api/v1")
 
     # Step 6: contexts
     # from app.api.v1.contexts import router as contexts_router

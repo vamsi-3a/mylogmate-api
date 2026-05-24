@@ -7,6 +7,9 @@ picks them up at Settings() instantiation time.
 from __future__ import annotations
 
 import os
+from collections.abc import Generator
+from contextlib import contextmanager
+from typing import Any
 
 # ── Test environment variables ─────────────────────────────────────────────
 # Must be set before any app module is imported (Settings() reads at import time).
@@ -45,6 +48,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
+from app.api.deps import get_current_user
 from app.main import app
 
 # ── Fixtures ───────────────────────────────────────────────────────────────
@@ -63,3 +67,22 @@ async def client() -> AsyncClient:
 @pytest.fixture(scope="session")
 def anyio_backend() -> str:
     return "asyncio"
+
+
+@contextmanager
+def override_current_user(user: Any) -> Generator[None, None, None]:
+    """Context manager that overrides the get_current_user FastAPI dependency.
+
+    Usage:
+        with override_current_user(mock_user):
+            resp = await client.get("/api/v1/auth/me", ...)
+
+    FastAPI's DI holds a direct reference to the dependency function, so
+    unittest.mock.patch() on the route module name has no effect — we must
+    use app.dependency_overrides instead.
+    """
+    app.dependency_overrides[get_current_user] = lambda: user
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
