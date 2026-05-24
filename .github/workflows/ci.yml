@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-typecheck-test:
+    name: Lint, Typecheck & Test
+    runs-on: ubuntu-latest
+
+    env:
+      # Test environment — all secrets are fake values for CI
+      APP_ENV: test
+      DEBUG: "false"
+      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@localhost:5432/mylogmate_test"
+      REDIS_URL: "redis://localhost:6379/1"
+      QDRANT_URL: "http://localhost:6333"
+      QDRANT_API_KEY: ""
+      JWT_SECRET_KEY: "ci-jwt-secret-key-minimum-32-chars-here!"
+      ENCRYPTION_KEY: "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg="
+      GROQ_API_KEY: "ci-groq-api-key"
+      LLM_PROVIDER: "groq"
+      GOOGLE_CLIENT_ID: "ci-google-client-id"
+      GOOGLE_CLIENT_SECRET: "ci-google-client-secret"
+      SMTP_HOST: "localhost"
+      SMTP_PORT: "1025"
+      SMTP_USER: "ci@example.com"
+      SMTP_PASSWORD: "ci-smtp-password"
+      CORS_ORIGINS: '["http://localhost:5173"]'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: ruff check app/ tests/
+
+      - name: Format check (ruff format)
+        run: ruff format --check app/ tests/
+
+      - name: Typecheck (mypy)
+        run: mypy app/
+
+      - name: Test (pytest)
+        run: pytest -v --tb=short --cov=app --cov-report=term-missing
