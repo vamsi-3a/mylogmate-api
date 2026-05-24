@@ -260,8 +260,9 @@ def _register_api_routers(app: FastAPI) -> None:
     app.include_router(recall_router, prefix="/api/v1")
 
     # Step 16: admin
-    # from app.api.v1.admin import router as admin_router
-    # app.include_router(admin_router, prefix="/api/v1")
+    from app.api.v1.admin import router as admin_router
+
+    app.include_router(admin_router, prefix="/api/v1")
 
     # Step 17: feedback
     # from app.api.v1.feedback import router as feedback_router
