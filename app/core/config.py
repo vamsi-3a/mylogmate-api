@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
 
+    # ── Frontend URL (used in email links) ────────────────────────────────
+    FRONTEND_URL: str = "http://localhost:5173"
+
     # ── CORS ──────────────────────────────────────────────────────────────
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
