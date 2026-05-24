@@ -99,3 +99,50 @@ async def get_admin_user(
             detail="Admin access required",
         )
     return current_user
+
+
+# ── Context resolution ────────────────────────────────────────────────────
+
+
+async def resolve_context_id(
+    raw: str | uuid.UUID,
+    user_id: uuid.UUID,
+    db: AsyncSession,
+) -> uuid.UUID:
+    """Resolve a public-facing context_id into a real UUID.
+
+    The frontend uses the magic string "self" to refer to the user's
+    auto-created Self context without needing to know its UUID. This helper
+    accepts that string OR a real UUID and returns the canonical UUID.
+
+    Raises 400 if the value is neither "self" nor a valid UUID.
+    Raises 404 if the user has no Self context (should never happen — created
+    automatically at signup).
+    """
+    from app.db.models.context import Context
+
+    if isinstance(raw, uuid.UUID):
+        return raw
+
+    if raw == "self":
+        result = await db.execute(
+            select(Context).where(
+                Context.user_id == user_id,
+                Context.type == "self",
+            )
+        )
+        ctx = result.scalar_one_or_none()
+        if ctx is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Self context not found for user",
+            )
+        return ctx.id
+
+    try:
+        return uuid.UUID(raw)
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid context_id: {raw!r}",
+        ) from None

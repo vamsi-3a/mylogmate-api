@@ -10,7 +10,15 @@ Rules (workers.md):
   - Use asyncio.run() to call async DB/Qdrant code from the sync Celery context
   - Log start, success, and failure with structlog
 
-DB access: async session via asyncio.run() (only asyncpg driver is installed).
+Event-loop discipline:
+  Celery tasks are sync. We use asyncio.run() ONCE per task to host all the
+  async work — never twice. The DB engine and Qdrant client both hold state
+  bound to whichever event loop created their first connection; a second
+  asyncio.run() in the same task would get a fresh loop and crash with
+  "Event loop is closed" when trying to reuse those connections.
+
+  After each task we close the Qdrant singleton so the next task starts
+  clean on a fresh loop. The async DB engine is recycled by pool_pre_ping.
 """
 
 from __future__ import annotations
@@ -23,39 +31,93 @@ import structlog
 from sqlalchemy import select
 
 from app.ai.embeddings import generate_embedding
-from app.ai.qdrant_store import delete_log_vector, upsert_log_vector
+from app.ai.qdrant_store import (
+    close_qdrant_client,
+    delete_log_vector,
+    upsert_log_vector,
+)
 from app.core.security import decrypt_content
 from app.db.models.log_entry import LogEntry
-from app.db.session import AsyncSessionLocal
+from app.db.session import AsyncSessionLocal, engine
 from app.workers.celery_app import celery_app
 
 logger = structlog.get_logger()
 
-# ── Async helpers (called via asyncio.run) ────────────────────────────────
+
+# ── Async pipeline (single coroutine per task) ────────────────────────────
 
 
-async def _load_log_entry(log_id: uuid.UUID) -> LogEntry | None:
-    """Load a non-deleted log entry from the DB."""
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(LogEntry).where(
-                LogEntry.id == log_id,
-                LogEntry.is_deleted.is_(False),
+async def _embed_pipeline(log_id: uuid.UUID) -> str:
+    """Full embed lifecycle: load → decrypt → embed → upsert → mark.
+
+    Returns the final embedding_status ("embedded" or "skipped").
+    """
+    try:
+        # ── Load entry ──────────────────────────────────────────────────
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(LogEntry).where(
+                    LogEntry.id == log_id,
+                    LogEntry.is_deleted.is_(False),
+                )
             )
+            entry = result.scalar_one_or_none()
+            if entry is None:
+                return "skipped"
+
+            content_encrypted = entry.content_encrypted
+            user_id = entry.user_id
+            context_id = entry.context_id
+            date_start_iso = entry.date_start.isoformat()
+            date_end_iso = entry.date_end.isoformat()
+
+        # ── Decrypt + embed (CPU-bound, but cheap enough to do inline) ──
+        plaintext = decrypt_content(content_encrypted)
+        vector = generate_embedding(plaintext)
+
+        # ── Upsert to Qdrant ────────────────────────────────────────────
+        await upsert_log_vector(
+            log_id=log_id,
+            user_id=user_id,
+            context_id=context_id,
+            vector=vector,
+            date_start=date_start_iso,
+            date_end=date_end_iso,
         )
-        return result.scalar_one_or_none()
+
+        # ── Mark embedded ───────────────────────────────────────────────
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(LogEntry).where(LogEntry.id == log_id)
+            )
+            mark_entry = result.scalar_one_or_none()
+            if mark_entry is not None:
+                mark_entry.embedding_status = "embedded"
+                await session.commit()
+
+        return "embedded"
+    finally:
+        # Reset per-loop singletons so the next Celery task starts clean.
+        await close_qdrant_client()
+        await engine.dispose()
 
 
-async def _set_embedding_status(log_id: uuid.UUID, status: str) -> None:
-    """Update the embedding_status field of a log entry."""
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(LogEntry).where(LogEntry.id == log_id)
-        )
-        entry = result.scalar_one_or_none()
-        if entry is not None:
-            entry.embedding_status = status
-            await session.commit()
+async def _set_status_async(log_id: uuid.UUID, status: str) -> None:
+    """Standalone async helper for marking a log as 'failed' from the error
+    handler. Runs in its own asyncio.run() so the main pipeline can have
+    already cleaned up its loop.
+    """
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(LogEntry).where(LogEntry.id == log_id)
+            )
+            entry = result.scalar_one_or_none()
+            if entry is not None:
+                entry.embedding_status = status
+                await session.commit()
+    finally:
+        await engine.dispose()
 
 
 # ── Tasks ─────────────────────────────────────────────────────────────────
@@ -72,13 +134,6 @@ async def _set_embedding_status(log_id: uuid.UUID, status: str) -> None:
 def embed_log_entry(self: Any, log_id_str: str) -> None:
     """Generate and store the embedding for a log entry.
 
-    Steps:
-      1. Load the log entry from DB.
-      2. Decrypt content.
-      3. Generate 384-dim embedding via Qdrant inference.
-      4. Upsert vector to Qdrant.
-      5. Set embedding_status='embedded'.
-
     On failure: retries up to 3 times with exponential backoff.
     Sets embedding_status='failed' after all retries are exhausted.
     """
@@ -86,32 +141,8 @@ def embed_log_entry(self: Any, log_id_str: str) -> None:
     logger.info("embed_log_entry_start", log_id=log_id_str)
 
     try:
-        # ── Load entry ──────────────────────────────────────────────────
-        entry = asyncio.run(_load_log_entry(log_id))
-        if entry is None:
-            logger.warning("embed_log_entry_skipped", log_id=log_id_str, reason="not found")
-            return
-
-        # ── Generate embedding ──────────────────────────────────────────
-        plaintext = decrypt_content(entry.content_encrypted)
-        vector = generate_embedding(plaintext)
-
-        # ── Upsert to Qdrant ────────────────────────────────────────────
-        asyncio.run(
-            upsert_log_vector(
-                log_id=entry.id,
-                user_id=entry.user_id,
-                context_id=entry.context_id,
-                vector=vector,
-                date_start=entry.date_start.isoformat(),
-                date_end=entry.date_end.isoformat(),
-            )
-        )
-
-        # ── Mark embedded ────────────────────────────────────────────────
-        asyncio.run(_set_embedding_status(log_id, "embedded"))
-        logger.info("embed_log_entry_success", log_id=log_id_str)
-
+        status = asyncio.run(_embed_pipeline(log_id))
+        logger.info("embed_log_entry_success", log_id=log_id_str, status=status)
     except Exception as exc:
         logger.error(
             "embed_log_entry_failed",
@@ -125,8 +156,7 @@ def embed_log_entry(self: Any, log_id_str: str) -> None:
                 countdown=30 * (2 ** self.request.retries),
             )
         except self.MaxRetriesExceededError:
-            # Exhausted retries — mark as failed so the UI can surface this
-            asyncio.run(_set_embedding_status(log_id, "failed"))
+            asyncio.run(_set_status_async(log_id, "failed"))
             logger.error("embed_log_entry_max_retries", log_id=log_id_str)
 
 
@@ -147,8 +177,14 @@ def delete_log_embedding(self: Any, log_id_str: str) -> None:
     log_id = uuid.UUID(log_id_str)
     logger.info("delete_log_embedding_start", log_id=log_id_str)
 
+    async def _delete() -> None:
+        try:
+            await delete_log_vector(log_id)
+        finally:
+            await close_qdrant_client()
+
     try:
-        asyncio.run(delete_log_vector(log_id))
+        asyncio.run(_delete())
         logger.info("delete_log_embedding_success", log_id=log_id_str)
     except Exception as exc:
         logger.error(

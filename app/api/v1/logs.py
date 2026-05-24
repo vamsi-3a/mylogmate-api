@@ -16,7 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, resolve_context_id
 from app.db.models.user import User
 from app.schemas.common import ApiResponse, PaginatedResponse
 from app.schemas.logs import (
@@ -37,10 +37,10 @@ router = APIRouter(prefix="/logs", tags=["logs"])
 @router.get(
     "",
     response_model=PaginatedResponse[LogResponse],
-    summary="List log entries for a context (paginated)",
+    summary="List log entries (paginated, all filters optional)",
 )
 async def list_logs(
-    context_id: uuid.UUID,
+    context_id: str | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     date_start: date | None = None,
@@ -49,10 +49,13 @@ async def list_logs(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedResponse[LogResponse]:
+    resolved_id: uuid.UUID | None = None
+    if context_id is not None:
+        resolved_id = await resolve_context_id(context_id, current_user.id, db)
     items, total = await logs_service.list_logs(
         db,
         current_user,
-        context_id=context_id,
+        context_id=resolved_id,
         page=page,
         page_size=page_size,
         date_start=date_start,
@@ -82,7 +85,8 @@ async def create_log(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[LogResponse]:
-    entry = await logs_service.create_log(db, current_user, body)
+    resolved_id = await resolve_context_id(body.context_id, current_user.id, db)
+    entry = await logs_service.create_log(db, current_user, body, resolved_id)
     return ApiResponse(data=entry, message="Log entry created")
 
 
@@ -99,17 +103,20 @@ async def create_log(
 async def get_calendar(
     year: Annotated[int, Path(ge=2000, le=2100)],
     month: Annotated[int, Path(ge=1, le=12)],
-    context_id: uuid.UUID | None = None,
+    context_id: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[CalendarMonthResponse]:
     """Returns a CalendarMonthResponse with one entry per calendar day.
 
     Each day includes log_count (0 if no entries) and has_entries flag.
-    Optionally filter by context_id (must belong to the current user).
+    Optionally filter by context_id (UUID or "self" magic string).
     """
+    resolved_id: uuid.UUID | None = None
+    if context_id is not None:
+        resolved_id = await resolve_context_id(context_id, current_user.id, db)
     cal = await logs_service.get_calendar(
-        db, current_user, year, month, context_id=context_id
+        db, current_user, year, month, context_id=resolved_id
     )
     return ApiResponse(data=cal, message="Calendar retrieved")
 

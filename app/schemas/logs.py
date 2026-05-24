@@ -19,7 +19,8 @@ from app.schemas.tags import TagResponse
 
 
 class CreateLogRequest(BaseModel):
-    context_id: uuid.UUID
+    # Accepts a real UUID or the magic string "self" — resolved at the route layer.
+    context_id: str = Field(..., min_length=1, max_length=64)
     content: str = Field(..., min_length=1, max_length=10_000)
     date_type: str = Field(
         ...,

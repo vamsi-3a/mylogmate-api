@@ -106,12 +106,17 @@ async def _get_or_create_session(
     return session
 
 
-def _message_to_response(message: ChatMessage) -> ChatMessageResponse:
+def _message_to_response(
+    message: ChatMessage,
+    source_log_ids: list[uuid.UUID] | None = None,
+) -> ChatMessageResponse:
     """Convert a ChatMessage ORM object to ChatMessageResponse (decrypted)."""
     return ChatMessageResponse(
         id=message.id,
+        session_id=message.chat_session_id,
         role=message.role,
         content=decrypt_content(message.content_encrypted),
+        source_log_ids=source_log_ids or [],
         created_at=message.created_at,
     )
 
@@ -123,6 +128,7 @@ async def recall_query(
     db: AsyncSession,
     user: User,
     body: RecallQueryRequest,
+    context_id: uuid.UUID,
 ) -> RecallQueryResponse:
     """Process an AI recall query.
 
@@ -136,11 +142,14 @@ async def recall_query(
       7. Record AIQueryLog (rate limit audit).
       8. Return RecallQueryResponse.
 
+    The context_id arg is the already-resolved UUID (route layer handles
+    "self" magic strings via deps.resolve_context_id).
+
     Raises:
       NotFoundError: If context or chat session is not found.
       ValidationError: If daily rate limit is exceeded.
     """
-    await _assert_context_owned(db, body.context_id, user.id)
+    await _assert_context_owned(db, context_id, user.id)
 
     # ── Rate limit check ──────────────────────────────────────────────────
     queries_used = await _count_queries_today(db, user.id)
@@ -154,7 +163,7 @@ async def recall_query(
     session = await _get_or_create_session(
         db,
         user_id=user.id,
-        context_id=body.context_id,
+        context_id=context_id,
         chat_session_id=body.chat_session_id,
         first_user_message=body.query,
     )
@@ -172,7 +181,7 @@ async def recall_query(
     answer, source_ids, latency_ms = await run_recall_query(
         db=db,
         user_id=user.id,
-        context_id=body.context_id,
+        context_id=context_id,
         query=body.query,
     )
 
@@ -187,7 +196,7 @@ async def recall_query(
     # ── Audit log ─────────────────────────────────────────────────────────
     ai_log = AIQueryLog(
         user_id=user.id,
-        context_id=body.context_id,
+        context_id=context_id,
         prompt_preview=body.query[:150],  # NEVER the full query
         latency_ms=latency_ms,
     )
@@ -198,7 +207,6 @@ async def recall_query(
     await db.refresh(assistant_msg)
     await db.refresh(session)
 
-    queries_used += 1  # reflect the query we just recorded
     logger.info(
         "recall_query_complete",
         user_id=str(user.id),
@@ -208,10 +216,9 @@ async def recall_query(
 
     return RecallQueryResponse(
         answer=answer,
+        source_log_ids=source_ids,
+        latency_ms=latency_ms,
         chat_session_id=session.id,
-        message=_message_to_response(assistant_msg),
-        queries_used_today=queries_used,
-        daily_limit=daily_limit,
     )
 
 
@@ -226,7 +233,7 @@ async def list_chat_sessions(
 ) -> tuple[list[ChatSessionResponse], int]:
     """Return paginated chat sessions for the user, newest first.
 
-    Returns (items, total_count).
+    Returns (items, total_count). Each session includes message_count.
     """
     count_result = await db.execute(
         select(func.count()).select_from(ChatSession).where(
@@ -236,16 +243,39 @@ async def list_chat_sessions(
     total: int = count_result.scalar_one()
 
     offset = (page - 1) * page_size
+    # Join with message count subquery
+    msg_count_sq = (
+        select(
+            ChatMessage.chat_session_id.label("sid"),
+            func.count().label("cnt"),
+        )
+        .group_by(ChatMessage.chat_session_id)
+        .subquery()
+    )
+
     result = await db.execute(
-        select(ChatSession)
+        select(ChatSession, func.coalesce(msg_count_sq.c.cnt, 0))
+        .outerjoin(msg_count_sq, ChatSession.id == msg_count_sq.c.sid)
         .where(ChatSession.user_id == user.id)
         .order_by(ChatSession.updated_at.desc())
         .offset(offset)
         .limit(page_size)
     )
-    sessions = result.scalars().all()
+    rows = result.all()
 
-    return [ChatSessionResponse.model_validate(s) for s in sessions], total
+    items = [
+        ChatSessionResponse(
+            id=s.id,
+            user_id=s.user_id,
+            context_id=s.context_id if s.context_id is not None else s.id,
+            title=s.title or "Untitled conversation",
+            message_count=int(cnt),
+            created_at=s.created_at,
+            updated_at=s.updated_at,
+        )
+        for s, cnt in rows
+    ]
+    return items, total
 
 
 async def get_chat_session(
@@ -271,8 +301,10 @@ async def get_chat_session(
 
     return ChatSessionDetailResponse(
         id=session.id,
-        context_id=session.context_id,
-        title=session.title,
+        user_id=session.user_id,
+        context_id=session.context_id if session.context_id is not None else session.id,
+        title=session.title or "Untitled conversation",
+        message_count=len(messages),
         messages=messages,
         created_at=session.created_at,
         updated_at=session.updated_at,

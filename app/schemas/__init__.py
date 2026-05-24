@@ -1,9 +1,11 @@
 """Pydantic schemas — request and response models for all API endpoints."""
 
 from app.schemas.admin import (
-    AdminStatsResponse,
-    DailyCount,
+    AdminDashboardResponse,
+    AdminStats,
     FeedbackAdminResponse,
+    TimeSeriesPoint,
+    TopUser,
     UserAdminResponse,
 )
 from app.schemas.auth import (
@@ -56,9 +58,11 @@ from app.schemas.templates import (
 
 __all__ = [
     # admin
-    "AdminStatsResponse",
-    "DailyCount",
+    "AdminDashboardResponse",
+    "AdminStats",
     "FeedbackAdminResponse",
+    "TimeSeriesPoint",
+    "TopUser",
     "UserAdminResponse",
     # auth
     "ForgotPasswordRequest",

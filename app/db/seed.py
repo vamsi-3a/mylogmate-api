@@ -184,7 +184,6 @@ async def _seed_admin(db_session: AsyncSession) -> None:
         email=admin_email,
         username="admin",
         password_hash=hash_password(admin_password),
-        full_name="Admin",
         is_active=True,
         is_admin=True,
         auth_provider="local",

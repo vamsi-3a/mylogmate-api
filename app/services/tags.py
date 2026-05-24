@@ -13,11 +13,12 @@ from __future__ import annotations
 import uuid
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError
+from app.db.models.log_entry_tag import log_entry_tags
 from app.db.models.tag import Tag
 from app.db.models.user import User
 from app.schemas.tags import CreateTagRequest, TagResponse, UpdateTagRequest
@@ -45,12 +46,32 @@ async def _get_or_404(
 
 
 async def list_tags(db: AsyncSession, user: User) -> list[TagResponse]:
-    """Return all tags for the user, ordered alphabetically."""
-    result = await db.execute(
-        select(Tag).where(Tag.user_id == user.id).order_by(Tag.name)
+    """Return all tags for the user, ordered alphabetically, with use counts."""
+    use_count_sq = (
+        select(
+            log_entry_tags.c.tag_id.label("tid"),
+            func.count().label("cnt"),
+        )
+        .group_by(log_entry_tags.c.tag_id)
+        .subquery()
     )
-    tags = result.scalars().all()
-    return [TagResponse.model_validate(t) for t in tags]
+    result = await db.execute(
+        select(Tag, func.coalesce(use_count_sq.c.cnt, 0))
+        .outerjoin(use_count_sq, Tag.id == use_count_sq.c.tid)
+        .where(Tag.user_id == user.id)
+        .order_by(Tag.name)
+    )
+    return [
+        TagResponse(
+            id=tag.id,
+            user_id=tag.user_id,
+            name=tag.name,
+            use_count=int(cnt),
+            created_at=tag.created_at,
+            updated_at=tag.updated_at,
+        )
+        for tag, cnt in result.all()
+    ]
 
 
 async def get_tag(

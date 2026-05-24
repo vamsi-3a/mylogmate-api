@@ -25,11 +25,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
+# Pre-download embedding model (worker needs it for embed_log_entry)
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')"
+
 COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 
-RUN useradd --no-create-home --shell /bin/false appuser
+RUN useradd --no-create-home --shell /bin/false appuser && \
+    chown -R appuser /tmp /root/.cache 2>/dev/null || true
 USER appuser
 
 # Celery worker: processes embeddings and email queues

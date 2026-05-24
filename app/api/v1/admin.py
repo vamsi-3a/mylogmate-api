@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_admin_user, get_db
 from app.db.models.user import User
 from app.schemas.admin import (
-    AdminStatsResponse,
+    AdminDashboardResponse,
     FeedbackAdminResponse,
     UserAdminResponse,
 )
@@ -32,16 +32,21 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 @router.get(
     "/stats",
-    response_model=ApiResponse[AdminStatsResponse],
+    response_model=ApiResponse[AdminDashboardResponse],
     status_code=status.HTTP_200_OK,
 )
 async def get_stats(
+    range: str = Query(
+        "30d",
+        pattern=r"^(7d|30d|90d|all)$",
+        description="Time window for range-scoped metrics",
+    ),
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(get_admin_user),
-) -> ApiResponse[AdminStatsResponse]:
-    """Return platform-wide statistics for the admin dashboard."""
-    stats = await admin_service.get_stats(db)
-    return ApiResponse(data=stats, message="Stats retrieved")
+) -> ApiResponse[AdminDashboardResponse]:
+    """Return dashboard payload (stats + activity series + top users)."""
+    dashboard = await admin_service.get_dashboard(db, range)
+    return ApiResponse(data=dashboard, message="Dashboard retrieved")
 
 
 @router.get(

@@ -21,7 +21,15 @@ from app.core.config import settings
 
 # ── App ───────────────────────────────────────────────────────────────────
 
-celery_app = Celery("mylogmate")
+celery_app = Celery(
+    "mylogmate",
+    # Explicit task module imports so workers register them at startup.
+    # Autodiscover would only find files named "tasks.py".
+    include=[
+        "app.workers.embedding_tasks",
+        "app.workers.email_tasks",
+    ],
+)
 
 # ── Configuration ─────────────────────────────────────────────────────────
 

@@ -13,8 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class CreateContextRequest(BaseModel):
     type: str = Field(
         ...,
-        pattern=r"^(self|teammate|project)$",
-        description="Context type: self | teammate | project",
+        pattern=r"^(self|team|project)$",
+        description="Context type: self | team | project",
     )
     name: str = Field(..., min_length=1, max_length=100)
 

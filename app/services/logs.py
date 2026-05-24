@@ -123,26 +123,28 @@ async def _resolve_tags(
 async def list_logs(
     db: AsyncSession,
     user: User,
-    context_id: uuid.UUID,
+    context_id: uuid.UUID | None = None,
     page: int = 1,
     page_size: int = 20,
     date_start: date | None = None,
     date_end: date | None = None,
     tag_ids: list[uuid.UUID] | None = None,
 ) -> tuple[list[LogResponse], int]:
-    """Return paginated log entries for a context.
+    """Return paginated log entries, optionally filtered by context.
 
     Returns (items, total_count).
     Entries are ordered newest first (by date_start DESC, created_at DESC).
     """
-    await _assert_context_owned(db, context_id, user.id)
+    if context_id is not None:
+        await _assert_context_owned(db, context_id, user.id)
 
     # ── Base filter ──────────────────────────────────────────────────────
     filters = [
         LogEntry.user_id == user.id,
-        LogEntry.context_id == context_id,
         LogEntry.is_deleted.is_(False),
     ]
+    if context_id is not None:
+        filters.append(LogEntry.context_id == context_id)
 
     if date_start:
         filters.append(LogEntry.date_start >= date_start)
@@ -190,22 +192,28 @@ async def get_log(
 
 
 async def create_log(
-    db: AsyncSession, user: User, body: CreateLogRequest
+    db: AsyncSession,
+    user: User,
+    body: CreateLogRequest,
+    context_id: uuid.UUID,
 ) -> LogResponse:
     """Create a log entry.
+
+    The context_id arg is the already-resolved UUID (route layer handles
+    the "self" magic string via deps.resolve_context_id).
 
     - Validates context ownership.
     - Validates tag ownership.
     - Encrypts content before storing.
     - Sets embedding_status='pending'.
-    - TODO Step 12: dispatch embed_log_entry.delay(str(entry.id))
+    - Dispatches Celery embed_log_entry task.
     """
-    await _assert_context_owned(db, body.context_id, user.id)
+    await _assert_context_owned(db, context_id, user.id)
     tags = await _resolve_tags(db, body.tag_ids, user.id)
 
     entry = LogEntry(
         user_id=user.id,
-        context_id=body.context_id,
+        context_id=context_id,
         content_encrypted=encrypt_content(body.content),
         date_type=body.date_type,
         date_start=body.date_start,
@@ -217,7 +225,7 @@ async def create_log(
     await db.commit()
     await db.refresh(entry)
 
-    logger.info("log_created", log_id=str(entry.id), context_id=str(body.context_id))
+    logger.info("log_created", log_id=str(entry.id), context_id=str(context_id))
     embed_log_entry.delay(str(entry.id))
     return _to_response(entry)
 

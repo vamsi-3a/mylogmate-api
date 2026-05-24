@@ -77,6 +77,7 @@ class ChatSession(Base):
         back_populates="chat_session",
         cascade="all, delete-orphan",
         order_by="ChatMessage.created_at",
+        lazy="selectin",
     )
 
     def __repr__(self) -> str:

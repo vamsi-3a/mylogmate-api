@@ -26,8 +26,11 @@ dependencies = [
     "celery[redis]>=5.4.0",
     "redis[hiredis]>=5.0.0",
 
-    # Vector Database (Qdrant Cloud Inference — no local model needed)
+    # Vector Database
     "qdrant-client>=1.9.0",
+
+    # Embedding model (ONNX-based, no PyTorch — small footprint)
+    "fastembed>=0.3.0",
 
     # AI / RAG (LlamaIndex orchestration + Groq LLM)
     "llama-index-core>=0.10.0",

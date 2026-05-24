@@ -14,7 +14,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, resolve_context_id
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.db.models.user import User
@@ -44,12 +44,13 @@ async def query_recall(
 ) -> ApiResponse[RecallQueryResponse]:
     """Run an AI recall query against the user's work logs.
 
-    Requires: context_id (must be owned by the user).
+    Requires: context_id (must be owned by the user, or "self" magic string).
     Optional: chat_session_id to continue an existing conversation.
 
     Rate limited to AI_QUERY_DAILY_LIMIT queries per day.
     """
-    result = await recall_service.recall_query(db, current_user, body)
+    context_id = await resolve_context_id(body.context_id, current_user.id, db)
+    result = await recall_service.recall_query(db, current_user, body, context_id)
     return ApiResponse(data=result, message="Query processed successfully")
 
 

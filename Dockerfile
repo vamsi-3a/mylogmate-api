@@ -27,18 +27,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
+# Pre-download embedding model so first request is fast (no cold-start download)
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')"
+
 # Copy application source
 COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 
 # Non-root user for security
-RUN useradd --no-create-home --shell /bin/false appuser
+RUN useradd --no-create-home --shell /bin/false appuser && \
+    chown -R appuser /tmp /root/.cache 2>/dev/null || true
 USER appuser
 
 EXPOSE 8000
-
-# NOTE: No embedding model pre-download needed — using Qdrant Cloud Inference.
-# Qdrant generates embeddings server-side; we send raw text.
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
