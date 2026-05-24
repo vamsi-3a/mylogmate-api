@@ -41,6 +41,14 @@ router = APIRouter(prefix="/logs", tags=["logs"])
 )
 async def list_logs(
     context_id: str | None = None,
+    context_type: Annotated[
+        str | None,
+        Query(
+            pattern=r"^(self|team|project)$",
+            description="Filter by context type — alternative to context_id when "
+                        "the caller wants all logs across e.g. every Teammate",
+        ),
+    ] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     date_start: date | None = None,
@@ -56,6 +64,7 @@ async def list_logs(
         db,
         current_user,
         context_id=resolved_id,
+        context_type=context_type,
         page=page,
         page_size=page_size,
         date_start=date_start,

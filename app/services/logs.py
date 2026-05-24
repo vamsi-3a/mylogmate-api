@@ -124,6 +124,7 @@ async def list_logs(
     db: AsyncSession,
     user: User,
     context_id: uuid.UUID | None = None,
+    context_type: str | None = None,
     page: int = 1,
     page_size: int = 20,
     date_start: date | None = None,
@@ -132,8 +133,14 @@ async def list_logs(
 ) -> tuple[list[LogResponse], int]:
     """Return paginated log entries, optionally filtered by context.
 
-    Returns (items, total_count).
-    Entries are ordered newest first (by date_start DESC, created_at DESC).
+    context_id and context_type are alternative filters:
+      - context_id  : restrict to one specific context (UUID)
+      - context_type: restrict to all of the user's contexts of this type
+                      ('self' | 'team' | 'project')
+    If both are given, context_id wins.
+
+    Returns (items, total_count). Entries are ordered newest first
+    (by date_start DESC, created_at DESC).
     """
     if context_id is not None:
         await _assert_context_owned(db, context_id, user.id)
@@ -145,6 +152,16 @@ async def list_logs(
     ]
     if context_id is not None:
         filters.append(LogEntry.context_id == context_id)
+    elif context_type is not None:
+        # Restrict to logs whose context belongs to the user AND matches the type
+        filters.append(
+            LogEntry.context_id.in_(
+                select(Context.id).where(
+                    Context.user_id == user.id,
+                    Context.type == context_type,
+                )
+            )
+        )
 
     if date_start:
         filters.append(LogEntry.date_start >= date_start)
