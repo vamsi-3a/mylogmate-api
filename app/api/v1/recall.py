@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
+from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.db.models.user import User
 from app.schemas.common import ApiResponse, PaginatedResponse
 from app.schemas.recall import (
@@ -33,7 +35,9 @@ router = APIRouter(tags=["recall"])
     response_model=ApiResponse[RecallQueryResponse],
     status_code=status.HTTP_200_OK,
 )
+@limiter.limit(f"{settings.AI_QUERY_DAILY_LIMIT}/day")
 async def query_recall(
+    request: Request,
     body: RecallQueryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),

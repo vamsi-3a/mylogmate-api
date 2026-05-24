@@ -9,11 +9,12 @@ from __future__ import annotations
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Cookie, Depends, Response, status
+from fastapi import APIRouter, Cookie, Depends, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.schemas.auth import (
     ForgotPasswordRequest,
     GoogleAuthRequest,
@@ -65,7 +66,9 @@ def _clear_refresh_cookie(response: Response) -> None:
     status_code=status.HTTP_201_CREATED,
     summary="Register a new local user",
 )
+@limiter.limit(settings.AUTH_RATE_LIMIT)
 async def signup(
+    request: Request,
     body: SignupRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
@@ -83,7 +86,9 @@ async def signup(
     response_model=ApiResponse[TokenResponse],
     summary="Login with username + password",
 )
+@limiter.limit(settings.AUTH_RATE_LIMIT)
 async def login(
+    request: Request,
     body: LoginRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
@@ -160,7 +165,9 @@ async def logout(
     response_model=ApiResponse[None],
     summary="Request a password reset email",
 )
+@limiter.limit(settings.AUTH_RATE_LIMIT)
 async def forgot_password(
+    request: Request,
     body: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[None]:
@@ -185,7 +192,9 @@ async def forgot_password(
     response_model=ApiResponse[None],
     summary="Reset password using the emailed token",
 )
+@limiter.limit(settings.AUTH_RATE_LIMIT)
 async def reset_password(
+    request: Request,
     body: ResetPasswordRequest,
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[None]:

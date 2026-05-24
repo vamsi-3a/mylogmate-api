@@ -18,9 +18,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler  # noqa: PLC2701
+from slowapi import _rate_limit_exceeded_handler  # noqa: PLC2701
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -36,6 +35,7 @@ from app.core.exceptions import (
     validation_exception_handler,
 )
 from app.core.logging import setup_logging
+from app.core.rate_limit import limiter as _limiter
 from app.db.session import AsyncSessionLocal, engine
 from app.schemas.common import HealthResponse, ReadyResponse
 
@@ -91,8 +91,7 @@ def create_app() -> FastAPI:
     )
 
     # ── Rate limiter (slowapi) ────────────────────────────────────────────
-    limiter = Limiter(key_func=get_remote_address)
-    app.state.limiter = limiter
+    app.state.limiter = _limiter
     app.add_exception_handler(
         RateLimitExceeded, _rate_limit_exceeded_handler  # type: ignore[arg-type]
     )
