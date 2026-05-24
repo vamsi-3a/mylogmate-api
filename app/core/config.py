@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # ── CORS ──────────────────────────────────────────────────────────────
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
+    # ── Admin seed ────────────────────────────────────────────────────────
+    ADMIN_EMAIL: str = ""
+    ADMIN_PASSWORD: str = ""
+
     # ── Rate limiting ─────────────────────────────────────────────────────
     AI_QUERY_DAILY_LIMIT: int = 50
     AUTH_RATE_LIMIT: str = "5/minute"
