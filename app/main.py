@@ -226,8 +226,9 @@ def _register_api_routers(app: FastAPI) -> None:
     app.include_router(auth_router, prefix="/api/v1")
 
     # Step 6: contexts
-    # from app.api.v1.contexts import router as contexts_router
-    # app.include_router(contexts_router, prefix="/api/v1")
+    from app.api.v1.contexts import router as contexts_router
+
+    app.include_router(contexts_router, prefix="/api/v1")
 
     # Step 7: tags
     # from app.api.v1.tags import router as tags_router
