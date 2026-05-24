@@ -18,9 +18,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler  # type: ignore[attr-defined]
-from slowapi.errors import RateLimitExceeded  # type: ignore[import-untyped]
-from slowapi.util import get_remote_address  # type: ignore[import-untyped]
+from slowapi import Limiter, _rate_limit_exceeded_handler  # noqa: PLC2701
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -122,7 +122,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
         start = time.perf_counter()
-        response = await call_next(request)
+        response: Response = await call_next(request)
         duration_ms = round((time.perf_counter() - start) * 1000)
 
         # Skip logging health endpoints to reduce noise
@@ -181,7 +181,7 @@ def _register_health_routes(app: FastAPI) -> None:
 
         # ── Redis ─────────────────────────────────────────────────────
         try:
-            import redis.asyncio as aioredis  # type: ignore[import-untyped]
+            import redis.asyncio as aioredis
 
             r: Any = aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=3)
             await r.ping()

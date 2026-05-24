@@ -68,7 +68,7 @@ class Settings(BaseSettings):
         """Accept either a JSON array or a comma-separated string."""
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
-        return v  # type: ignore[return-value]
+        return list(v)  # pydantic-settings may pass a pre-parsed list
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
