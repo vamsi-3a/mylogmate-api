@@ -13,11 +13,12 @@ Lifecycle:
 
 from __future__ import annotations
 
+import calendar
 import uuid
 from datetime import date
 
 import structlog
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, ValidationError
@@ -29,6 +30,8 @@ from app.db.models.tag import Tag
 from app.db.models.user import User
 from app.schemas.logs import (
     AssignTagsRequest,
+    CalendarDayResponse,
+    CalendarMonthResponse,
     CreateLogRequest,
     LogResponse,
     UpdateLogRequest,
@@ -298,3 +301,53 @@ async def assign_tags(
 
     logger.info("log_tags_assigned", log_id=str(log_id), tag_count=len(body.tag_ids))
     return _to_response(entry)
+
+
+async def get_calendar(
+    db: AsyncSession,
+    user: User,
+    year: int,
+    month: int,
+    context_id: uuid.UUID | None = None,
+) -> CalendarMonthResponse:
+    """Return a per-day log count for every day in the given month.
+
+    Optionally filtered by context_id (must be owned by the user).
+    Returns a CalendarMonthResponse with one entry per day in the month,
+    including days with zero log entries.
+    """
+    if context_id is not None:
+        await _assert_context_owned(db, context_id, user.id)
+
+    # ── Query: day-of-month → count ──────────────────────────────────────
+    day_col = extract("day", LogEntry.date_start).label("day")
+    filters = [
+        LogEntry.user_id == user.id,
+        LogEntry.is_deleted.is_(False),
+        extract("year", LogEntry.date_start) == year,
+        extract("month", LogEntry.date_start) == month,
+    ]
+    if context_id is not None:
+        filters.append(LogEntry.context_id == context_id)
+
+    result = await db.execute(
+        select(day_col, func.count().label("cnt"))
+        .where(and_(*filters))
+        .group_by(day_col)
+        .order_by(day_col)
+    )
+    rows = result.all()  # list of (day_float, count)
+    counts: dict[int, int] = {int(row[0]): row[1] for row in rows}
+
+    # ── Build full-month response (all calendar days) ─────────────────────
+    _, days_in_month = calendar.monthrange(year, month)
+    days = [
+        CalendarDayResponse(
+            date=date(year, month, d),
+            log_count=counts.get(d, 0),
+            has_entries=d in counts,
+        )
+        for d in range(1, days_in_month + 1)
+    ]
+
+    return CalendarMonthResponse(year=year, month=month, days=days)
