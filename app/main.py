@@ -255,8 +255,9 @@ def _register_api_routers(app: FastAPI) -> None:
     app.include_router(templates_router, prefix="/api/v1")
 
     # Step 14: recall
-    # from app.api.v1.recall import router as recall_router
-    # app.include_router(recall_router, prefix="/api/v1")
+    from app.api.v1.recall import router as recall_router
+
+    app.include_router(recall_router, prefix="/api/v1")
 
     # Step 16: admin
     # from app.api.v1.admin import router as admin_router
