@@ -236,8 +236,9 @@ def _register_api_routers(app: FastAPI) -> None:
     app.include_router(tags_router, prefix="/api/v1")
 
     # Step 8: logs
-    # from app.api.v1.logs import router as logs_router
-    # app.include_router(logs_router, prefix="/api/v1")
+    from app.api.v1.logs import router as logs_router
+
+    app.include_router(logs_router, prefix="/api/v1")
 
     # Step 9: templates
     # from app.api.v1.templates import router as templates_router
