@@ -38,6 +38,11 @@ celery_app.conf.update(
     broker_url=settings.REDIS_URL,
     result_backend=None,  # No result backend — fire-and-forget tasks
 
+    # Eager mode — run tasks in-process instead of a separate worker.
+    # Enabled for the single-service free deploy; harmless when False.
+    task_always_eager=settings.CELERY_TASK_ALWAYS_EAGER,
+    task_eager_propagates=False,  # a failed task never breaks the caller's request
+
     # Reliability
     task_acks_late=True,           # Ack only after task completes (safe on restart)
     task_reject_on_worker_lost=True,  # Re-queue if worker dies mid-task

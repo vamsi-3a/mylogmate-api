@@ -37,6 +37,7 @@ from app.schemas.logs import (
     UpdateLogRequest,
 )
 from app.schemas.tags import TagResponse
+from app.workers.dispatch import dispatch
 from app.workers.embedding_tasks import delete_log_embedding, embed_log_entry
 
 logger = structlog.get_logger()
@@ -243,7 +244,7 @@ async def create_log(
     await db.refresh(entry)
 
     logger.info("log_created", log_id=str(entry.id), context_id=str(context_id))
-    embed_log_entry.delay(str(entry.id))
+    await dispatch(embed_log_entry, str(entry.id))
     return _to_response(entry)
 
 
@@ -288,7 +289,7 @@ async def update_log(
 
     logger.info("log_updated", log_id=str(log_id), content_changed=content_changed)
     if content_changed:
-        embed_log_entry.delay(str(entry.id))
+        await dispatch(embed_log_entry, str(entry.id))
     return _to_response(entry)
 
 
@@ -306,7 +307,7 @@ async def delete_log(
     await db.commit()
 
     logger.info("log_deleted", log_id=str(log_id))
-    delete_log_embedding.delay(str(log_id))
+    await dispatch(delete_log_embedding, str(log_id))
 
 
 async def assign_tags(

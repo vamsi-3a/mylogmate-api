@@ -49,6 +49,7 @@ from app.schemas.auth import (
     UpdateProfileRequest,
     UserResponse,
 )
+from app.workers.dispatch import dispatch
 from app.workers.email_tasks import send_reset_password_email
 
 logger = structlog.get_logger()
@@ -344,7 +345,7 @@ async def forgot_password(db: AsyncSession, body: ForgotPasswordRequest) -> str 
     reset_token = create_reset_token(user_id=str(user.id))
     logger.info("password_reset_requested", user_id=str(user.id))
     # Dispatch email task — never log the token itself
-    send_reset_password_email.delay(user.email, reset_token)
+    await dispatch(send_reset_password_email, user.email, reset_token)
     return reset_token
 
 

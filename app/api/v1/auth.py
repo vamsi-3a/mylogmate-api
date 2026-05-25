@@ -1,7 +1,8 @@
 """Auth routes — thin handlers that delegate all logic to app.services.auth.
 
 Cookie name for refresh token: refresh_token
-httpOnly=True, secure=True (secure=False in dev), samesite='lax'
+httpOnly=True; secure=True in prod (False in dev); samesite from COOKIE_SAMESITE.
+SameSite=None (cross-site frontend/API) forces secure=True per browser rules.
 """
 
 from __future__ import annotations
@@ -39,7 +40,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # Refresh cookie settings — matches the JWT_ALGORITHM choice
 _COOKIE_NAME = "refresh_token"
 _COOKIE_MAX_AGE = settings.REFRESH_TOKEN_EXPIRE_DAYS * 86_400  # seconds
-_COOKIE_SECURE = settings.APP_ENV != "development"
+# SameSite=None is only honored over HTTPS — force Secure to avoid silent drops.
+_COOKIE_SECURE = settings.APP_ENV != "development" or settings.COOKIE_SAMESITE == "none"
 
 
 def _set_refresh_cookie(response: Response, token: str) -> None:
@@ -49,12 +51,17 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
         max_age=_COOKIE_MAX_AGE,
         httponly=True,
         secure=_COOKIE_SECURE,
-        samesite="lax",
+        samesite=settings.COOKIE_SAMESITE,
     )
 
 
 def _clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(key=_COOKIE_NAME, httponly=True, secure=_COOKIE_SECURE)
+    response.delete_cookie(
+        key=_COOKIE_NAME,
+        httponly=True,
+        secure=_COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+    )
 
 
 # ── POST /auth/signup ──────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 """Application settings loaded from environment variables via pydantic-settings."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     # ── Redis ─────────────────────────────────────────────────────────────
     REDIS_URL: str  # redis://host:port/db
 
+    # ── Background tasks (Celery) ─────────────────────────────────────────
+    # True  — run tasks in-process (single-service free deploy; no worker).
+    # False — enqueue to a separate Celery worker (default; the paid path).
+    CELERY_TASK_ALWAYS_EAGER: bool = False
+
     # ── Qdrant (Cloud Inference — no local embedding model) ───────────────
     QDRANT_URL: str  # https://xxx.qdrant.io or http://localhost:6333
     QDRANT_API_KEY: str = ""
@@ -29,6 +34,12 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # ── Refresh-token cookie ──────────────────────────────────────────────
+    # "lax"  — frontend and API share a registrable domain (same-site).
+    # "none" — frontend and API on different sites (e.g. Vercel + Render);
+    #          browsers require Secure=True alongside SameSite=None.
+    COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
 
     # ── Encryption (AES-256 via Fernet) ──────────────────────────────────
     # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
