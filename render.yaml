@@ -39,11 +39,11 @@ services:
     autoDeploy: true
     healthCheckPath: /health
 
-    # Free tier has no preDeployCommand — run migrations at start, then serve.
-    # --workers 1 keeps a single embedding-model instance in memory (512 MB cap).
-    dockerCommand: >-
-      sh -c "alembic upgrade head &&
-      uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"
+    # Start command lives in the Dockerfile CMD (exec form): it runs
+    # `alembic upgrade head` then `uvicorn ... --workers 1`. We intentionally
+    # do NOT set dockerCommand here — Render's command parser keeps literal
+    # quotes, which breaks an inline `sh -c "...&&..."`. The image CMD is
+    # passed through by Docker verbatim and works reliably.
 
     envVars:
       - key: APP_ENV

@@ -275,7 +275,8 @@ Set on **Vercel**:
 | CORS error in browser console | `CORS_ORIGINS` on Render must equal the Vercel origin exactly, e.g. `https://mylogmate-web.vercel.app` (no trailing slash). |
 | AI recall returns nothing | New logs need a moment to embed; also check `QDRANT_URL`/`QDRANT_API_KEY` and `GROQ_API_KEY`. |
 | Service restarts / "out of memory" in logs | 512 MB is tight with the local model. Upgrade the Render service to Starter, or switch to Qdrant Cloud Inference (server-side embeddings) to drop the local model. |
-| Migrations didn't run | They run on each start via the `dockerCommand`. Check the deploy logs for the `alembic upgrade head` output; verify `DATABASE_URL`. |
+| Migrations didn't run | They run on each container start (the image `CMD` runs `alembic upgrade head` before uvicorn). Check the deploy logs for that output; verify `DATABASE_URL`. |
+| Deploy exits with status 127 / `sh: not found` | Don't put `dockerCommand: sh -c "..."` in `render.yaml` — Render keeps the literal quotes and the whole string becomes one command. The start command lives in the Dockerfile `CMD` instead. |
 
 ---
 

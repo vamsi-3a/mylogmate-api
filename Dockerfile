@@ -42,4 +42,9 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# Run DB migrations, then serve. exec-form CMD is passed verbatim by Docker
+# (no host re-parsing), so the && and quoting work reliably on any platform.
+# `exec` hands PID 1 to uvicorn so it receives SIGTERM for graceful shutdown.
+# --workers 1 keeps a single embedding-model instance in memory (512 MB free tier).
+# (docker-compose overrides this command for local dev; the worker uses Dockerfile.worker.)
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]
